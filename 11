@@ -1,0 +1,69 @@
+"""
+weather.py
+核心天气查询逻辑：城市名 → 坐标 → 天气数据。
+数据源：Open-Meteo（完全免费，无需 API Key）。
+"""
+
+import requests
+from typing import Optional
+
+GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
+FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+
+
+def geocode_city(city: str, country: Optional[str] = None) -> Optional[dict]:
+    """将城市名解析为坐标、国家等信息。country 可传国家名称或代码进行过滤。"""
+    params = {"name": city, "count": 10, "language": "en", "format": "json"}
+    try:
+        resp = requests.get(GEOCODE_URL, params=params, timeout=10)
+        resp.raise_for_status()
+    except requests.RequestException:
+        return None
+
+    results = resp.json().get("results")
+    if not results:
+        return None
+
+    if country:
+        country_lower = country.lower()
+        for r in results:
+            if (
+                r.get("country", "").lower() == country_lower
+                or r.get("country_code", "").lower() == country_lower
+            ):
+                return r
+        return None  # 有结果但国家不匹配
+
+    return results[0]  # 默认返回第一个匹配
+
+
+def fetch_weather(lat: float, lon: float, unit: str = "celsius") -> Optional[dict]:
+    """根据经纬度获取当前天气。unit 可选 'celsius' 或 'fahrenheit'。"""
+    temp_unit = "celsius" if unit == "celsius" else "fahrenheit"
+    wind_unit = "kmh" if unit == "celsius" else "mph"
+
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "current_weather": True,
+        "temperature_unit": temp_unit,
+        "windspeed_unit": wind_unit,
+    }
+    try:
+        resp = requests.get(FORECAST_URL, params=params, timeout=10)
+        resp.raise_for_status()
+        return resp.json().get("current_weather")
+    except requests.RequestException:
+        return None
+
+
+def query_weather(city: str, country: Optional[str] = None, unit: str = "celsius"):
+    """一站式查询：城市 → 坐标 → 天气。返回 (location_info, weather_info) 或 (None, None)。"""
+    location = geocode_city(city, country=country)
+    if not location:
+        return None, None
+
+    lat = location["latitude"]
+    lon = location["longitude"]
+    weather = fetch_weather(lat, lon, unit=unit)
+    return location, weather
